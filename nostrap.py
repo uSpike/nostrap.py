@@ -1,17 +1,17 @@
+#!/usr/bin/env python
 """
 nostrap.py
 
 Get virtualenv and other
 packages from pypi with nothing but python installed.
 
-.. codeauthor:: Jordan Speicher jordan@jspeicher.com
+.. codeauthor:: Jordan Speicher
 """
 from __future__ import absolute_import
 import sys
 import os
 import shutil
 import tempfile
-import atexit
 try:
     from urllib.request import urlopen
     from xmlrpc.client import ServerProxy
@@ -20,9 +20,6 @@ except ImportError:
     from xmlrpclib import ServerProxy
 
 HOST = 'https://pypi.python.org/pypi'
-
-_TEMPDIR = tempfile.mkdtemp()
-atexit.register(shutil.rmtree, _TEMPDIR)
 
 def get_package_dist(name, version='latest', packagetype='bdist_wheel'):
     """
@@ -45,7 +42,7 @@ def get_package_dist(name, version='latest', packagetype='bdist_wheel'):
 
     return dists[0]
 
-def download_package(name, dest=_TEMPDIR, **kwargs):
+def download_package(name, dest, **kwargs):
     """
     Download a package and return the name of the file.
     """
@@ -58,11 +55,11 @@ def download_package(name, dest=_TEMPDIR, **kwargs):
     stream = urlopen(url)
 
     with open(os.path.join(dest, filename), 'w+b') as temp:
-        print('Get {} -> {}'.format(url.split('/')[-1], temp.name))
+        print('Get {}'.format(filename))
         temp.write(stream.read())
         return temp.name
 
-def require(name, **kwargs):
+def require(name, dest, **kwargs):
     """
     Import and return a package by name.  If the package does not exist,
     download from pypi, import and return it.
@@ -70,45 +67,20 @@ def require(name, **kwargs):
     try:
         return __import__(name, globals(), locals(), level=0)
     except ImportError:
-        temp = download_package(name, **kwargs)
+        temp = download_package(name, dest, **kwargs)
         if not temp:
             raise Exception('Cannot download package {}'.format(name))
         sys.path.append(temp)
         return __import__(name, globals(), locals(), level=0)
 
-def make_virtualenv(vdir, **kwargs):
-    """
-    Wrapper around virtualenv to download dependency packages
-    as needed.
-    """
-    if os.path.exists(vdir):
-        print('vdir exists: {}'.format(vdir))
-        print('Will not create new virtual env')
-        return
-
-    required = []
-    if not kwargs.get('no_pip'):
-        download_package('pip')
-
-    if not kwargs.get('no_setuptools'):
-        download_package('setuptools')
-
-    if not kwargs.get('no_wheel'):
-        download_package('wheel')
-
-    search_dirs = kwargs.get('search_dirs', [])
-    kwargs['search_dirs'] = [_TEMPDIR] + search_dirs
-
-    virtualenv = require('virtualenv')
-    virtualenv.create_environment(vdir, **kwargs)
-    print('Created virtual env: {}'.format(vdir))
-
 if __name__ == '__main__':
-    if os.environ.get('DEBUG') == True:
-        import logging
-        logging.basicConfig(level=logging.DEBUG)
+    tempdir = tempfile.mkdtemp()
+    try:
+        require('pip', tempdir)
+        sys.argv += ['--download']
+        sys.argv += ['--extra-search-dir', tempdir]
+        virtualenv = require('virtualenv', tempdir)
+        virtualenv.main()
+    finally:
+        shutil.rmtree(tempdir)
 
-    vdir = 'pyenv'
-    if len(sys.argv) > 1:
-        vdir = sys.argv[1]
-    make_virtualenv(vdir)
